@@ -34,10 +34,17 @@ namespace Multiplayer.Compat
         private static FieldInfo selectedRecipeField;
         private static FieldInfo styleField;
 
+        private static bool latePatched;
+
         public NiceBillTab(ModContentPack mod) => LongEventHandler.ExecuteWhenFinished(LatePatch);
 
         private static void LatePatch()
         {
+            // Both target mods are usually active together, which constructs this class twice;
+            // patching twice would stack the prefixes and sync every click twice.
+            if (latePatched) return;
+            latePatched = true;
+
             tabBillsDrawerType = AccessTools.TypeByName("NiceBillTab.TabBillsDrawer");
             recipeSelectionType = AccessTools.TypeByName("NiceBillTab.RecipeSelection");
             settingsType = AccessTools.TypeByName("NiceBillTab.Settings");
