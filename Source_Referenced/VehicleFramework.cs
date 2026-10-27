@@ -134,9 +134,21 @@ namespace Multiplayer.Compat
                 // Disembark single (13) — synced via wrapper SyncedDisembarkPawn instead of lambda
                 //   or direct method (pawns inside vehicles are despawned, MP can't serialize them)
                 // Haul pawn target callback (10) — called when player selects a pawn in HaulTargeter
+#if RIMWORLD_1_7
+                // Vehicle Framework 1.7 moved load cargo (OpenLoadCargoDialog), haul targeting
+                // (StartHaulTargeting) and the fish toggle (FishingTracker) out of GetGizmos:
+                // cancel load cargo (5), force leave caravan (8), cancel forming caravan (9), disembark single (7).
+                MpCompat.RegisterLambdaDelegate(typeof(VehiclePawn), nameof(VehiclePawn.GetGizmos), 5, 8, 9);
+                MP.RegisterSyncMethod(MpMethodUtil.GetLocalFunc(typeof(VehiclePawn), "StartHaulTargeting", localFunc: "OnConfirm"));
+                MP.RegisterSyncWorker<FishingTracker>(SyncFishingTracker);
+                MP.RegisterSyncMethod(typeof(FishingTracker), "ToggleFishing");
+                const int disembarkSingleOrdinal = 7;
+#else
                 MpCompat.RegisterLambdaDelegate(typeof(VehiclePawn), nameof(VehiclePawn.GetGizmos), 5, 8, 10, 14, 15);
+                const int disembarkSingleOrdinal = 13;
+#endif
                 MpCompat.harmony.Patch(
-                    MpMethodUtil.GetLambda(typeof(VehiclePawn), nameof(VehiclePawn.GetGizmos), lambdaOrdinal: 13),
+                    MpMethodUtil.GetLambda(typeof(VehiclePawn), nameof(VehiclePawn.GetGizmos), lambdaOrdinal: disembarkSingleOrdinal),
                     prefix: new HarmonyMethod(typeof(VehicleFramework), nameof(PreDisembarkSinglePawn)));
                 MP.RegisterSyncMethod(typeof(VehicleFramework), nameof(SyncedDisembarkPawn));
 
@@ -199,8 +211,14 @@ namespace Multiplayer.Compat
                     transpiler: new HarmonyMethod(typeof(VehicleFramework), nameof(ReplaceSetTargetCall)));
 
                 // Targetable turrets
+#if RIMWORLD_1_7
+                // Vehicle Framework 1.7: the targeter callback is the CommitTarget method (uses the command's turret).
+                method = AccessTools.DeclaredMethod(typeof(Command_TargeterCooldownAction), "CommitTarget");
+                MP.RegisterSyncMethod(method);
+#else
                 method = MpMethodUtil.GetLambda(typeof(Command_TargeterCooldownAction), nameof(Command_TargeterCooldownAction.FireTurret), lambdaOrdinal: 0);
                 MP.RegisterSyncDelegate(typeof(Command_TargeterCooldownAction), method.DeclaringType!.Name, method.Name);
+#endif
                 MpCompat.harmony.Patch(method, prefix: new HarmonyMethod(typeof(VehicleFramework), nameof(PreSetTurretTarget)));
 
                 // Called from Vehicles.TurretTargeter:BeginTargeting
@@ -331,10 +349,16 @@ namespace Multiplayer.Compat
                     transpiler: new HarmonyMethod(typeof(VehicleFramework), nameof(ReplaceButtonsTranspiler)));
 
                 // Catch load cargo dialog gizmo to open session dialog tied to it or create session if there's none
+#if RIMWORLD_1_7
+                // Vehicle Framework 1.7: the gizmo calls VehiclePawn.OpenLoadCargoDialog.
+                MpCompat.harmony.Patch(AccessTools.DeclaredMethod(typeof(VehiclePawn), "OpenLoadCargoDialog"),
+                    prefix: new HarmonyMethod(typeof(VehicleFramework), nameof(PreOpenLoadCargoDialog)));
+#else
                 // Ordinal 6 = open Dialog_LoadCargo (verified from compiled DLL IL)
                 method = MpMethodUtil.GetLambda(typeof(VehiclePawn), nameof(VehiclePawn.GetGizmos), lambdaOrdinal: 6);
                 vehiclePawnInnerClassParentField = AccessTools.FieldRefAccess<VehiclePawn>(method.DeclaringType, "<>4__this");
                 MpCompat.harmony.Patch(method, prefix: new HarmonyMethod(typeof(VehicleFramework), nameof(PreLoadCargoDialog)));
+#endif
 
                 // Prevent the call in MP, as it'll mess with transferables if re-opening the window.
                 MpCompat.harmony.Patch(AccessTools.DeclaredMethod(typeof(Dialog_LoadCargo), "CalculateAndRecacheTransferables"),
@@ -1772,6 +1796,31 @@ namespace Multiplayer.Compat
             return false;
         }
 
+        private static bool PreOpenLoadCargoDialog(VehiclePawn __instance)
+        {
+            if (!MP.IsInMultiplayer)
+                return true;
+
+            if (!LoadVehicleCargoSession.TryOpenLoadVehicleCargoDialog(__instance))
+                LoadVehicleCargoSession.CreateLoadVehicleCargoSession(__instance);
+
+            return false;
+        }
+
+#if RIMWORLD_1_7
+        // FishingTracker keeps its vehicle in the primary constructor parameter.
+        private static readonly AccessTools.FieldRef<FishingTracker, VehiclePawn> fishingTrackerVehicleField
+            = AccessTools.FieldRefAccess<FishingTracker, VehiclePawn>("<vehicle>P");
+
+        private static void SyncFishingTracker(SyncWorker sync, ref FishingTracker tracker)
+        {
+            if (sync.isWriting)
+                sync.Write(fishingTrackerVehicleField(tracker));
+            else
+                tracker = sync.Read<VehiclePawn>()?.fishingTracker;
+        }
+#endif
+
         #endregion
 
         #endregion
@@ -2100,8 +2149,14 @@ namespace Multiplayer.Compat
         #region Designator
 
         [MpCompatPrefix(typeof(Designator_AreaRoad), nameof(Designator_AreaRoad.ProcessInput), 1)]
+#if RIMWORLD_1_7
+        // Vehicle Framework 1.7: the option is made by a local function whose parameter is named "type".
+        private static void StoreNewLocalRoadType(Designator_AreaRoad.RoadType ___type)
+            => localRoadType = ___type;
+#else
         private static void StoreNewLocalRoadType(Designator_AreaRoad.RoadType ___roadType)
             => localRoadType = ___roadType;
+#endif
 
         [MpCompatPrefix(typeof(Designator_AreaRoad), nameof(Designator_AreaRoad.DesignateSingleCell))]
         [MpCompatPrefix(typeof(Designator_AreaRoad), nameof(Designator_AreaRoad.CanDesignateCell))]
