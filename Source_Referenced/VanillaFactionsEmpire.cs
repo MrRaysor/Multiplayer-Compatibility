@@ -61,9 +61,13 @@ namespace Multiplayer.Compat
                 {
                     // (Re)generates data
                     MP.RegisterSyncMethod(typeof(RoyaltyTabWorker_Hierarchy), nameof(RoyaltyTabWorker_Hierarchy.Notify_Open));
-                    // Invite pawn
+                    // Invite pawn. The 1.7 build nests the title holder one closure further from the option's lambda.
+                    var invite = MpMethodUtil.GetLambda(typeof(RoyaltyTabWorker_Hierarchy), nameof(RoyaltyTabWorker_Hierarchy.DoMainSection), lambdaOrdinal: 1);
+                    var pawnPath = AccessTools.Field(invite.DeclaringType, "CS$<>8__locals2") != null
+                        ? "CS$<>8__locals2/CS$<>8__locals1/pawn"
+                        : "CS$<>8__locals1/pawn";
                     MpCompat.RegisterLambdaDelegate(typeof(RoyaltyTabWorker_Hierarchy), nameof(RoyaltyTabWorker_Hierarchy.DoMainSection), 1)[0]
-                        .TransformField("CS$<>8__locals1/pawn", Serializer.New<Pawn, int>(WriteRoyalPawn, ReadRoyalPawn));
+                        .TransformField(pawnPath, Serializer.New<Pawn, int>(WriteRoyalPawn, ReadRoyalPawn));
                 });
 
                 // Syncing adding/removing honors
