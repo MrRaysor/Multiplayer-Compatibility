@@ -56,22 +56,39 @@ namespace Multiplayer.Compat
         {
             usedReward = true;
             var database = rewardDatabase();
-            SyncedCalls(database.IndexOf(reward));
+            // The rewards drop their item, start their quest, event, incident or raid on Find.CurrentMap: the map the buyer
+            // looks at. Synced without it, each player used his own (2026-11-04, desync 500: the quest item reward dropped
+            // on the host's colony and on the client's). The map makes this a command of that map, which Multiplayer runs
+            // with that map as the current one on every player; no map (world view) keeps the mod's own fallback.
+            SyncedCalls(database.IndexOf(reward), Find.CurrentMap);
             return false;
         }
 
-        private static void SyncedCalls(int index)
+        private static void SyncedCalls(int index, Map map)
         {
             var database = rewardDatabase();
             var reward = database[index];
 
-            if ((bool)purchaseRewardMethod.Invoke(reward, Array.Empty<object>()))
+            // A map command already runs with its map as the current one. Bought from the world view (no map), no current
+            // map either, so that the mod takes its own fallback (the first home map) on every player.
+            var game = Current.Game;
+            var previousMap = game.currentMapIndex;
+            if (map == null)
+                game.currentMapIndex = -1;
+            try
             {
-                if (!(bool)tryExecuteEventMethod.Invoke(reward, Array.Empty<object>()))
-                    refundPointsMethod.Invoke(reward, Array.Empty<object>());
-                // Match the mod behavior and close the window for the user that successfully bought the reward (trying to always close in our PurchaseReward method seemed to mess stuff up)
-                else if (usedReward)
-                    Find.WindowStack.Windows.FirstOrDefault(x => x.GetType() == windowType)?.Close(false);
+                if ((bool)purchaseRewardMethod.Invoke(reward, Array.Empty<object>()))
+                {
+                    if (!(bool)tryExecuteEventMethod.Invoke(reward, Array.Empty<object>()))
+                        refundPointsMethod.Invoke(reward, Array.Empty<object>());
+                    // Match the mod behavior and close the window for the user that successfully bought the reward (trying to always close in our PurchaseReward method seemed to mess stuff up)
+                    else if (usedReward)
+                        Find.WindowStack.Windows.FirstOrDefault(x => x.GetType() == windowType)?.Close(false);
+                }
+            }
+            finally
+            {
+                game.currentMapIndex = previousMap;
             }
 
             usedReward = false;
