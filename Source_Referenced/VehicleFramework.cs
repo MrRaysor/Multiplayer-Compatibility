@@ -2087,7 +2087,13 @@ namespace Multiplayer.Compat
                 if (turret.IsTargetable || turret.attachedTo != null)
                 {
                     turret.UpdateRotationLock();
-                    turret.TurretRotation = Mathf.Repeat(turret.TurretRotation, 360f);
+                    // Vehicle Framework 1.7: the getter of a turret mounted on another one returns its own angle plus its
+                    // parent's, while the setter takes its own angle. Writing the getter back added the parent's angle at
+                    // every tick: the Ripsaw M5's top-mounted M2HB (on a main turret at 180 degrees) flipped by 180 degrees
+                    // each tick, never aligned, so it spun on screen and could not fire (2026-11-05). The getter already
+                    // clamps the turret's own angle; only a turret not mounted on another is written back.
+                    if (turret.attachedTo == null)
+                        turret.TurretRotation = Mathf.Repeat(turret.TurretRotation, 360f);
                 }
             }
         }
